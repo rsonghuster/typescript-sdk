@@ -216,12 +216,17 @@ import express, { Request, Response } from "express";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 
-const server = new McpServer({
-  name: "example-server",
-  version: "1.0.0"
-});
-
-// ... set up server resources, tools, and prompts ...
+// Create a new server instance every time a new connection is made to ensure concurrency
+const createServer = () => {
+  // Create server instance
+  const server = new McpServer({
+    name: "example-server",
+    version: "1.0.0"
+  });
+  
+  // ... set up server resources, tools, and prompts ...
+  return server;
+}
 
 const app = express();
 
@@ -230,12 +235,17 @@ const app = express();
 const transports: {[sessionId: string]: SSEServerTransport} = {};
 
 app.get("/sse", async (_: Request, res: Response) => {
+  const server = createServer();
   const transport = new SSEServerTransport('/messages', res);
   transports[transport.sessionId] = transport;
   res.on("close", () => {
     delete transports[transport.sessionId];
   });
-  await server.connect(transport);
+  server.server.onclose = async () => {
+    await server.close();
+    transports.delete(transport.sessionId);
+  };
+  await server.server.connect(transport);
 });
 
 app.post("/messages", async (req: Request, res: Response) => {
